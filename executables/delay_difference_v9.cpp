@@ -120,11 +120,11 @@ Type objective_function<Type>::operator() ()
   }
   
   // Probability of non-spatial random effects
-  if( ModelType==2 ){
-    for (int t=0;t<n_t;t++){
-      g -= dnorm(Nu_input(t), Type(0.0), Type(1.0), true);
-    }
-  }
+  // if( ModelType==2 ){
+  //   for (int t=0;t<n_t;t++){
+  //     g -= dnorm(Nu(t), Type(0.0), Type(1.0), true);
+  //   }
+  // }
   
   // Equilibrium dynamics
   vector<Type> mu_S_equil(n_i);
@@ -138,15 +138,15 @@ Type objective_function<Type>::operator() ()
   vector<Type> W_equil(n_i);
 	
   for(int i=0;i<n_s;i++){
-    mu_S_equil(i) = (exp(beta) * exp(Strata(i)) * ( w_k - (w_k-alpha_g)*exp(-M-F_equil) ) / (Type(1.0) - exp(-M-F_equil) - ro*exp(-M-F_equil) + ro*exp(-Type(2.0)*M-Type(2.0)*F_equil) ));
-    mu_R_equil(i) = exp(beta) * exp(Strata(i));
-    mu_S0(i) = (exp(beta) * exp(Strata(i)) * ( w_k - (w_k-alpha_g)*exp(-M-Type(0.0)) ) / (Type(1.0) - exp(-M-Type(0.0)) - ro*exp(-M-Type(0.0)) + ro*exp(-Type(2.0)*M-Type(2.0)*Type(0.0)) ));
+    mu_S_equil(i) = (exp(Type(3.0)*beta) * exp(Strata(i)) * ( w_k - (w_k-alpha_g)*exp(-M-F_equil) ) / (Type(1.0) - exp(-M-F_equil) - ro*exp(-M-F_equil) + ro*exp(-Type(2.0)*M-Type(2.0)*F_equil) ));
+    mu_R_equil(i) = exp(Type(3.0)*beta) * exp(Strata(i));
+    mu_S0(i) = (exp(Type(3.0)*beta) * exp(Strata(i)) * ( w_k - (w_k-alpha_g)*exp(-M-Type(0.0)) ) / (Type(1.0) - exp(-M-Type(0.0)) - ro*exp(-M-Type(0.0)) + ro*exp(-Type(2.0)*M-Type(2.0)*Type(0.0)) ));
     mu_N_equil(i) = mu_R_equil(i) / (Type(1.0) - exp(-M-F_equil));
   }
   for(int i=n_s;i<n_i;i++){
-    mu_S_equil(i) = (exp(beta) * ( w_k - (w_k-alpha_g)*exp(-M-F_equil) ) / (Type(1.0) - exp(-M-F_equil) - ro*exp(-M-F_equil) + ro*exp(-Type(2.0)*M-Type(2.0)*F_equil) ));
-    mu_R_equil(i) = exp(beta);
-    mu_S0(i) = (exp(beta) * ( w_k - (w_k-alpha_g)*exp(-M-Type(0.0)) ) / (Type(1.0) - exp(-M-Type(0.0)) - ro*exp(-M-Type(0.0)) + ro*exp(-Type(2.0)*M-Type(2.0)*Type(0.0)) ));
+    mu_S_equil(i) = (exp(Type(3.0)*beta) * ( w_k - (w_k-alpha_g)*exp(-M-F_equil) ) / (Type(1.0) - exp(-M-F_equil) - ro*exp(-M-F_equil) + ro*exp(-Type(2.0)*M-Type(2.0)*F_equil) ));
+    mu_R_equil(i) = exp(Type(3.0)*beta);
+    mu_S0(i) = (exp(Type(3.0)*beta) * ( w_k - (w_k-alpha_g)*exp(-M-Type(0.0)) ) / (Type(1.0) - exp(-M-Type(0.0)) - ro*exp(-M-Type(0.0)) + ro*exp(-Type(2.0)*M-Type(2.0)*Type(0.0)) ));
     mu_N_equil(i) = mu_R_equil(i) / (Type(1.0) - exp(-M-F_equil));
   }
   Type sum_S0 = 0;

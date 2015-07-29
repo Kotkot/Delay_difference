@@ -40,7 +40,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 #### Settings
 # Simulation test
   #RandomSeed = as.numeric(paste(na.omit(as.numeric(strsplit(as.character(Date),"")[[1]])),collapse=""))
-    RandomSeed = ceiling( runif(1, min=1, max=1e6) )
+  RandomSeed = 0#ceiling( runif(1, min=1, max=1e6) )
   if( !exists("ThreadNum") ) ThreadNum = 1
   RepSet = 1:10
   RepSet = RepSet + max(RepSet)*(ThreadNum-1) 
@@ -422,6 +422,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
          Map[["log_F_t_input"]] = factor( c(1,1:n_t) )
        }
         if( Model=="Strata" ){
+         Map[["beta"]] = factor(NA)
          Map[["log_tau_E"]] = factor(NA)
          Map[["log_tau_O"]] = factor(NA)
          Map[["Epsilon_input"]] = factor( rep(NA,length(Parameters$Epsilon_input)) )
@@ -435,8 +436,23 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
         MapList = list( "Map"=Map, "Random"=Random)
         capture.output(MapList, file=paste(ModelFile,"MapList.txt",sep=""))
       # Build object                                                              #    
-        obj <- MakeADFun(data=Data, parameters=Parameters, random=Random, hessian=TRUE, map=Map)
-      
+        # no random effect for the annual variation in recruitment
+			if(Model!="Spatial")
+			{
+				Map1 <- Map
+				Map1[["log_tau_N"]] = factor(NA)
+				obj <- MakeADFun(data=Data, parameters=Parameters, random=NULL, hessian=TRUE, map=Map1)
+				obj$control <- list(trace=1, parscale=1, REPORT=1, reltol=1e-12, maxit=1000)
+				obj$hessian <- FALSE
+				obj$fn(obj$par)
+				opt = nlminb(start=obj1$par, objective=obj1$fn, gradient=obj1$gr, lower=-20, upper=20, control=list(trace=1, eval.max=1e4, iter.max=1e4))
+			}
+		# with the annual variation in recruitment as random effect
+			if(Model=="Spatial")
+			{
+				obj <- MakeADFun(data=Data, parameters=Parameters, random=Random, hessian=TRUE, map=Map, random.start=opt1$par[which(names(opt1$par)=='Nu_input')])
+			}
+			
       # Separability
         if(FALSE){
           h = obj$env$spHess(random=TRUE)
