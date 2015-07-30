@@ -17,11 +17,12 @@ File = "C:/Users/Kotaro Ono/Dropbox/Postdoc_projects/side_projects/Delay_differe
 File = "C:/Users/Kotkot/Dropbox/Postdoc_projects/side_projects/Delay_difference/"
 TmbFile = paste0(File, "/executables/")
 
-# Date file
-  #Date = Sys.Date()
-  Date = "2017-07-29"
-  DateFile=paste(File,"Sim_",Date,"/",sep="")
-  dir.create(DateFile)
+Run_simul <- function(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2, ...)
+{
+
+# Directory name
+  Dir_save=paste0(File,"SD_A=", SD_A, "_SD_E=", SD_E, "_Scale=", Scale, "_CV_w=", CV_w, "_Accel=", Accel, "_SD_F=", SD_F)
+  dir.create(Dir_save)
 
 # Libraries
 library(INLA)
@@ -42,7 +43,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
   #RandomSeed = as.numeric(paste(na.omit(as.numeric(strsplit(as.character(Date),"")[[1]])),collapse=""))
   RandomSeed = 0#ceiling( runif(1, min=1, max=1e6) )
   if( !exists("ThreadNum") ) ThreadNum = 1
-  RepSet = 1:10
+  RepSet = 1:50
   RepSet = RepSet + max(RepSet)*(ThreadNum-1) 
 # Estimation
   ModelSet = c("Nonspatial", "Spatial", "Index", "Strata")[c(1:2,4)]
@@ -70,36 +71,36 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
   mu_R0_total = 1e9 # Median total R0
   mu_N0 = mu_R0_total / (1-exp(-M))
 # Variability
-  SD_A = 0.5  # 0.5  # Spatial variation in productivity
-  SD_E = 0.5  # 0.5  # Spatiotemporal variation in recruitment
-  Scale = 0.25 * 1000
+  SD_A = SD_A  # 0.5  # Spatial variation in productivity
+  SD_E = SD_E  # 0.5  # Spatiotemporal variation in recruitment
+  Scale = Scale		  # Controls the range of the semivariogram
 # Fishing mortality 
   F_equil = 0.05  # Initial equilibrium fishing mortality
   S_bioecon = 0.4
-  Accel = 0.2
-  SD_F = 0.2 # 0.2
+  Accel = Accel
+  SD_F = SD_F # 0.2
 # Data
   n_samp_per_year = 100 
   AreaSwept = 0.0025 # 10 / mu_N0 * DomainArea  # in km^2
   q_I = 1
-  CV_w = 0.20
-  CV_c = 0.05
+  CV_w = CV_w		# sampling variability in the weight data
+  CV_c = 0.05		# observation error with the catch data
 # Visualization
   Ngrid_sim = 1e4
   Ngrid_proj = 1e4  
   
   # Save settings
   SettingsList = list( "RandomSeed"=RandomSeed, "ThreadNum"=ThreadNum, "RepSet"=RepSet, "ModelSet"=ModelSet, "ErrorModel_CatchRates"=ErrorModel_CatchRates, "ErrorModel_MeanWeight"=ErrorModel_MeanWeight, "Smooth_F"=Smooth_F, "Fix_Q"=Fix_Q, "SpatialSimModel"=SpatialSimModel, "MeshType"=MeshType, "Version"=Version, "n_s"=n_s, "n_t"=n_t, "Range_X"=Range_X, "Range_Y"=Range_Y, "k"=k, "ro"=ro, "alpha_g"=alpha_g, "M"=M, "RecFn"=RecFn, "mu_R0_total"=mu_R0_total, "SD_A"=SD_A, "SD_E"=SD_E, "Scale"=Scale, "F_equil"=F_equil, "S_bioecon"=S_bioecon, "Accel"=Accel, "SD_F"=SD_F, "n_samp_per_year"=n_samp_per_year, "AreaSwept"=AreaSwept, "q_I"=q_I, "CV_w"=CV_w, "CV_c"=CV_c)  
-    capture.output(SettingsList, file=paste(DateFile,"SettingsList.txt",sep=""))
-    save(SettingsList, file=paste(DateFile,"SettingsList.RData",sep=""))
-    # file.copy( from=paste(TmbFile,Version,".cpp",sep=""), to=paste(DateFile,Version,".cpp",sep=""), overwrite=TRUE)
+    capture.output(SettingsList, file=paste(Dir_save,"SettingsList.txt",sep=""))
+    save(SettingsList, file=paste(Dir_save,"SettingsList.RData",sep=""))
+    # file.copy( from=paste(TmbFile,Version,".cpp",sep=""), to=paste(Dir_save,Version,".cpp",sep=""), overwrite=TRUE)
   
   # Replication loop
   RepI=1; ModelI=3
   for(RepI in 1:length(RepSet)){
 
     # RepFile
-    RepFile = paste(DateFile,"Rep=",RepSet[RepI],"/",sep="")
+    RepFile = paste(Dir_save,"Rep=",RepSet[RepI],"/",sep="")
     dir.create(RepFile)
     set.seed( RandomSeed + RepSet[RepI] )
   
@@ -603,7 +604,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 		  dev.off()
 
 		# Weight -- pred vs. obs
-		  png( file=paste(DateFile,"Pred_v_Obs_MeanWeight.png",sep=""), width=4, height=4, res=200, units="in")
+		  png( file=paste(Dir_save,"Pred_v_Obs_MeanWeight.png",sep=""), width=4, height=4, res=200, units="in")
 		    Mat = cbind( "Obs"=DF[which(DF[,'I_j']>0),'W_j'], "Pred"=Report$W_it[as.matrix(DF[which(DF[,'I_j']>0),c('Station_j','Year_j')])] )
 		    # Cbind( Report$W_it[as.matrix(DF[which(DF[,'I_j']>0),c('Station_j','Year_j')])], (Report$S_it/Report$N_it)[as.matrix(DF[which(DF[,'I_j']>0),c('Station_j','Year_j')])]
 		    plot(x=Mat[,"Pred"], y=Mat[,"Obs"], xlim=c(0,max(Mat,na.rm=TRUE)), ylim=c(0,max(Mat,na.rm=TRUE)), col=rgb(0,0,0,alpha=0.02), , ylab="Obs", xlab="Pred"  ) 
@@ -612,7 +613,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 		#  (1+ro)*exp(-M-Report$F_equil)*Report$S_equil - ro*exp(-2*M-Report$F_equil-Report$F_equil)*Report$S_equil + w_k*Report$R_it[,1] - (w_k-alpha_g)*exp(-Report$F_equil-M)*Report$R_equil
 		
 		# Catch rates -- pred vs. obs
-		  png( file=paste(DateFile,"Pred_v_Obs_CatchRates.png",sep=""), width=4, height=4, res=200, units="in")
+		  png( file=paste(Dir_save,"Pred_v_Obs_CatchRates.png",sep=""), width=4, height=4, res=200, units="in")
 		    Mat = cbind( "Obs"=DF[,'I_j'], "Pred"=Report$I_j_hat )
 		    plot(x=sqrt(Mat[,"Pred"]), y=sqrt(Mat[,"Obs"]), xlim=c(0,max(sqrt(Mat),na.rm=TRUE)), ylim=c(0,max(sqrt(Mat),na.rm=TRUE)), xaxt="n", yaxt="n", col=rgb(0,0,0,alpha=0.02), ylab="Obs", xlab="Pred"  ) 
 		    axis(1, at=axTicks(1), labels=axTicks(1)^2)
@@ -728,6 +729,24 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 		  } # End if(ModelI!="Index")
     }} # End ModelI, RepI loops
 
+}
+
+
+
+
+# Base case
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2)
+# Test SD_A
+	Run_simul(SD_A=0.25, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2)
+	Run_simul(SD_A=1, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2)
+# Test SD_E
+	Run_simul(SD_A=0.5, SD_E=0.25, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2)
+	Run_simul(SD_A=0.5, SD_E=1, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2)
+	
+
+
+
+
 
 ################################
 #
@@ -737,7 +756,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 
 if(FALSE){
 
-  load(file=paste(DateFile,"SettingsList.RData",sep=""))
+  load(file=paste(Dir_save,"SettingsList.RData",sep=""))
   attach( SettingsList )
   # n_s = 25
 
@@ -756,11 +775,11 @@ if(FALSE){
     if( 'Save' %in% search() ) detach(Save)
 
     # RepFile
-    RepFile = paste(DateFile,"Rep=",RepSet[RepI],"/",sep="")
+    RepFile = paste(Dir_save,"Rep=",RepSet[RepI],"/",sep="")
     ModelFile = paste(RepFile,"Model=",ModelSet[ModelI],"/",sep="")
 
     # Load true values
-    load( file=paste(ModelFile,"TrueList.RData",sep=""))
+    load( file=paste(RepFile,"TrueList.RData",sep=""))
     Match = which(names(TrueList) %in% ls() )
     if( length(Match)>=1) remove( list=names(TrueList)[Match])
     attach(TrueList)
@@ -816,7 +835,7 @@ if(FALSE){
   }}  
 
   # Correlations between Omega and Epsilon                                    # col=rgb(1,0,0,0.2), 
-  png(file=paste(DateFile,"Random_field_summaries.png",sep=""), width=5, height=5, res=200, units="in")
+  png(file=paste(Dir_save,"Random_field_summaries.png",sep=""), width=5, height=5, res=200, units="in")
     par(mfrow=c(2,2), mar=c(0,2,0,0), mgp=c(2,0.5,0), tck=-0.02, oma=c(3,3,2,0.5), xaxs="i", yaxs="i")
     hist(Param[,"R2_omega","Spatial"], breaks=seq(0,1,length=25), xlim=c(0,1), prob=TRUE, main="", xlab="", ylab="", xaxt="n", col="darkgrey" ); box()
     mtext( side=3, text="Variance explained")
