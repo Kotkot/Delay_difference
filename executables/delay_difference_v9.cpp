@@ -15,7 +15,7 @@ template<class Type>
 Type objective_function<Type>::operator() ()
 {
   // Settings
-  DATA_INTEGER(ModelType);      			 // 1: Spatial; 2: Nonspatial
+  DATA_INTEGER(ModelType);      			 // 1: Spatial; 2: Nonspatial, 3: Strata
   DATA_INTEGER(ErrorModel_CatchRates);       // 0: Poisson; 1: Negative binomial for counts
   DATA_INTEGER(ErrorModel_MeanWeight);       // 0: Fixed-CV; 1: Est-CV
   DATA_INTEGER(Smooth_F);         			 // 0: No; 1: Yes
@@ -64,7 +64,7 @@ Type objective_function<Type>::operator() ()
   PARAMETER(log_kappa);                // range of spatial variation
   PARAMETER_VECTOR(ln_VarInfl);        // Neg-Bin variance inflation for counts at each sample j
   PARAMETER(log_extraCV_w);            // additional CV of average weight at sample j
-  PARAMETER_VECTOR(Strata);            // fixed strata effect
+  PARAMETER_VECTOR(Strata);        		 // Strata fixed effect
   PARAMETER(log_tau_N);                // magnitude of temporal variation
   PARAMETER_VECTOR(log_extraCV_Index); // variance inflation for stockwide abundance index and average weight
 
@@ -119,13 +119,13 @@ Type objective_function<Type>::operator() ()
     g += GMRF_temp(Omega_input);
   }
   
-  // Probability of non-spatial random effects
+  // Probability of non-spatial random effects (the temporal recruitment)
   // if( ModelType==2 ){
-  //   for (int t=0;t<n_t;t++){
-  //     g -= dnorm(Nu(t), Type(0.0), Type(1.0), true);
-  //   }
+    // for (int t=0;t<n_t;t++){
+      // g -= dnorm(Nu(t), Type(0.0), Type(1.0), true);
+    // }
   // }
-  
+    
   // Equilibrium dynamics
   vector<Type> mu_S_equil(n_i);
   vector<Type> mu_S0(n_i);
@@ -138,15 +138,15 @@ Type objective_function<Type>::operator() ()
   vector<Type> W_equil(n_i);
 	
   for(int i=0;i<n_s;i++){
-    mu_S_equil(i) = (exp(Type(3.0)*beta) * exp(Strata(i)) * ( w_k - (w_k-alpha_g)*exp(-M-F_equil) ) / (Type(1.0) - exp(-M-F_equil) - ro*exp(-M-F_equil) + ro*exp(-Type(2.0)*M-Type(2.0)*F_equil) ));
-    mu_R_equil(i) = exp(Type(3.0)*beta) * exp(Strata(i));
-    mu_S0(i) = (exp(Type(3.0)*beta) * exp(Strata(i)) * ( w_k - (w_k-alpha_g)*exp(-M-Type(0.0)) ) / (Type(1.0) - exp(-M-Type(0.0)) - ro*exp(-M-Type(0.0)) + ro*exp(-Type(2.0)*M-Type(2.0)*Type(0.0)) ));
+    mu_S_equil(i) = (exp(beta) * exp(Strata(i)) * ( w_k - (w_k-alpha_g)*exp(-M-F_equil) ) / (Type(1.0) - exp(-M-F_equil) - ro*exp(-M-F_equil) + ro*exp(-Type(2.0)*M-Type(2.0)*F_equil) ));
+    mu_R_equil(i) = exp(beta) * exp(Strata(i));
+    mu_S0(i) = (exp(beta) * exp(Strata(i)) * ( w_k - (w_k-alpha_g)*exp(-M-Type(0.0)) ) / (Type(1.0) - exp(-M-Type(0.0)) - ro*exp(-M-Type(0.0)) + ro*exp(-Type(2.0)*M-Type(2.0)*Type(0.0)) ));
     mu_N_equil(i) = mu_R_equil(i) / (Type(1.0) - exp(-M-F_equil));
   }
   for(int i=n_s;i<n_i;i++){
-    mu_S_equil(i) = (exp(Type(3.0)*beta) * ( w_k - (w_k-alpha_g)*exp(-M-F_equil) ) / (Type(1.0) - exp(-M-F_equil) - ro*exp(-M-F_equil) + ro*exp(-Type(2.0)*M-Type(2.0)*F_equil) ));
-    mu_R_equil(i) = exp(Type(3.0)*beta);
-    mu_S0(i) = (exp(Type(3.0)*beta) * ( w_k - (w_k-alpha_g)*exp(-M-Type(0.0)) ) / (Type(1.0) - exp(-M-Type(0.0)) - ro*exp(-M-Type(0.0)) + ro*exp(-Type(2.0)*M-Type(2.0)*Type(0.0)) ));
+    mu_S_equil(i) = (exp(beta) * ( w_k - (w_k-alpha_g)*exp(-M-F_equil) ) / (Type(1.0) - exp(-M-F_equil) - ro*exp(-M-F_equil) + ro*exp(-Type(2.0)*M-Type(2.0)*F_equil) ));
+    mu_R_equil(i) = exp(beta);
+    mu_S0(i) = (exp(beta) * ( w_k - (w_k-alpha_g)*exp(-M-Type(0.0)) ) / (Type(1.0) - exp(-M-Type(0.0)) - ro*exp(-M-Type(0.0)) + ro*exp(-Type(2.0)*M-Type(2.0)*Type(0.0)) ));
     mu_N_equil(i) = mu_R_equil(i) / (Type(1.0) - exp(-M-F_equil));
   }
   Type sum_S0 = 0;

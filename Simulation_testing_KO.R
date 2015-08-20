@@ -2,7 +2,9 @@
 #
 # NOTES
 #
-# 1.  Fixing F_equil=F_t[1] for spatial and nonspatial models increases bias for F, S, N, etc.
+# 1. The spatial model is based on the one from Jim Thorson
+# 2. The strata effect model is implemented with the time varying recruitment effect as fixed (not random effect as in the spatial model)
+# 3. The one strata model is the same as above without the strata fixed effects
 #
 # TEMP
 # A.  par()$usr gives plot region boundaries for plotting a legend
@@ -14,15 +16,9 @@
 #########################
 
 File = "C:/Users/Kotaro Ono/Dropbox/Postdoc_projects/side_projects/Delay_difference/"
-File = "C:/Users/Kotkot/Dropbox/Postdoc_projects/side_projects/Delay_difference/"
+# File = "C:/Users/Kotkot/Dropbox/Postdoc_projects/side_projects/Delay_difference/"
+setwd(File)
 TmbFile = paste0(File, "/executables/")
-
-Run_simul <- function(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2, ...)
-{
-
-# Directory name
-  Dir_save=paste0(File,"SD_A=", SD_A, "_SD_E=", SD_E, "_Scale=", Scale, "_CV_w=", CV_w, "_Accel=", Accel, "_SD_F=", SD_F)
-  dir.create(Dir_save)
 
 # Libraries
 library(INLA)
@@ -37,6 +33,16 @@ library(cluster)	#pam
     
 # Source helper functions
 source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
+
+SD_A=0.5; SD_E=0.5; Scale=250; CV_w=0.2; Accel=0.2; SD_F=0.2; 
+
+
+Run_simul <- function(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2, Spatial_F=FALSE,...)
+{
+
+# Directory name
+  Dir_save=paste0(File,"SD_A=", SD_A, "_SD_E=", SD_E, "_Scale=", Scale, "_CV_w=", CV_w, "_Accel=", Accel, "_SD_F=", SD_F, "_Ftime=", Spatial_F, "/")
+  dir.create(Dir_save)
 
 #### Settings
 # Simulation test
@@ -53,7 +59,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
   Fix_Q = TRUE   # 
   SpatialSimModel = "Matern"
   MeshType = c("Minimal","Recommended")[1]
-  Version = c("delay_difference_v4d", "delay_difference_v6c", "delay_difference_v8e", "delay_difference_v9")[4]
+  Version = "delay_difference_v9"
   n_s = 25
 # Domain
   n_t = 30
@@ -91,8 +97,8 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
   
   # Save settings
   SettingsList = list( "RandomSeed"=RandomSeed, "ThreadNum"=ThreadNum, "RepSet"=RepSet, "ModelSet"=ModelSet, "ErrorModel_CatchRates"=ErrorModel_CatchRates, "ErrorModel_MeanWeight"=ErrorModel_MeanWeight, "Smooth_F"=Smooth_F, "Fix_Q"=Fix_Q, "SpatialSimModel"=SpatialSimModel, "MeshType"=MeshType, "Version"=Version, "n_s"=n_s, "n_t"=n_t, "Range_X"=Range_X, "Range_Y"=Range_Y, "k"=k, "ro"=ro, "alpha_g"=alpha_g, "M"=M, "RecFn"=RecFn, "mu_R0_total"=mu_R0_total, "SD_A"=SD_A, "SD_E"=SD_E, "Scale"=Scale, "F_equil"=F_equil, "S_bioecon"=S_bioecon, "Accel"=Accel, "SD_F"=SD_F, "n_samp_per_year"=n_samp_per_year, "AreaSwept"=AreaSwept, "q_I"=q_I, "CV_w"=CV_w, "CV_c"=CV_c)  
-    capture.output(SettingsList, file=paste(Dir_save,"SettingsList.txt",sep=""))
-    save(SettingsList, file=paste(Dir_save,"SettingsList.RData",sep=""))
+    capture.output(SettingsList, file=paste(Dir_save,"/SettingsList.txt",sep=""))
+    save(SettingsList, file=paste(Dir_save,"/SettingsList.RData",sep=""))
     # file.copy( from=paste(TmbFile,Version,".cpp",sep=""), to=paste(Dir_save,Version,".cpp",sep=""), overwrite=TRUE)
   
   # Replication loop
@@ -100,7 +106,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
   for(RepI in 1:length(RepSet)){
 
     # RepFile
-    RepFile = paste(Dir_save,"Rep=",RepSet[RepI],"/",sep="")
+    RepFile = paste(Dir_save,"/Rep=",RepSet[RepI],"/",sep="")
     dir.create(RepFile)
     set.seed( RandomSeed + RepSet[RepI] )
   
@@ -150,7 +156,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
       plot(model_A, ylim=c(0,1), xlim=c(-3,3)*diff(Range_X))
       plot(x=h, y=C, ylim=c(0,1), type="l")
       RangeTrue = abs(h[which.min( (C-0.10*SD_A)^2 )])
-  
+	  graphics.off()		
     # locations of sampling stations
     if( n_samp_per_year < n_s*2 ) error("Increase n_samp_per_year for K-means algorithm")
     if(TRUE){
@@ -218,27 +224,39 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
     print( paste("Expected unfished catch rate = ", sum( mu_S_equil_per_area*AreaSwept ) ))
         
     #### Simulate B
-    C_st = S_st = N_st = R_st = W_st = matrix(NA, nrow=n_s+n_samp_per_year+Ngrid_sim, ncol=n_t) # These are "per unit area"
+    fakeF <- rep(NA,n_t)
+		F_t = C_st = S_st = N_st = R_st = W_st = matrix(NA, nrow=n_s+n_samp_per_year+Ngrid_sim, ncol=n_t) # These are "per unit area"
     # Project forward
     for(t in 1:n_t){
-      # Recruitment
+      # Initial fishing mortality
+      if(t==1)
+			{
+				fakeF[t] = F_equil
+				if(Spatial_F == FALSE) F_t[,t] = rep(fakeF[t], length(S_equil))
+				if(Spatial_F == TRUE) F_t[,t] = fakeF[t] * c(S_equil/max(S_equil))
+			}	
+			# Recruitment
       R_st[,t] = R_equil * exp(Epsilon_s[,t])
       # Numbers
-      if(t==1) N_st[,t] = N_equil * exp(-M-F_equil) + R_st[,t]  
-      if(t>=2) N_st[,t] = N_st[,t-1] * exp(-M-F_t[t-1]) + R_st[,t]  
+      if(t==1) N_st[,t] = N_equil * exp(-M-F_t[,1]) + R_st[,t]  
+      if(t>=2) N_st[,t] = N_st[,t-1] * exp(-M-F_t[,t-1]) + R_st[,t]  
       # Biomass
       #if(t==1) S_st[,t] = (1+ro)*exp(-M-F_equil)*S_equil - ro*exp(-2*M-F_equil-F_equil)*S_equil + w_k*R_st[,t] - (w_k-alpha_g)*exp(-F_equil-M)*R_equil
       #if(t==2) S_st[,t] = (1+ro)*exp(-M-F_t[t-1])*S_st[,t-1] - ro*exp(-2*M-F_t[t-1]-F_equil)*S_equil + w_k*R_st[,t] - (w_k-alpha_g)*exp(-F_t[t-1]-M)*R_st[,t-1]
       #if(t>=3) S_st[,t] = (1+ro)*exp(-M-F_t[t-1])*S_st[,t-1] - ro*exp(-2*M-F_t[t-1]-F_t[t-2])*S_st[,t-2] + w_k*R_st[,t] - (w_k-alpha_g)*exp(-F_t[t-1]-M)*R_st[,t-1]
-      if(t==1) S_st[,t] = exp(-M-F_equil)* (alpha_g*N_equil + ro*S_equil) + w_k*R_st[,t]
-      if(t>=2) S_st[,t] = exp(-M-F_t[t-1])* (alpha_g*N_st[,t-1] + ro*S_st[,t-1]) + w_k*R_st[,t]
+      if(t==1) S_st[,t] = exp(-M-F_t[,1])* (alpha_g*N_equil + ro*S_equil) + w_k*R_st[,t]
+      if(t>=2) S_st[,t] = exp(-M-F_t[,t-1])* (alpha_g*N_st[,t-1] + ro*S_st[,t-1]) + w_k*R_st[,t]
+      # Fishing mortality
+      if(t>=2) 
+			{
+				fakeF[t] = fakeF[t-1] * (sum(Area_all*S_st[,t])/sum(Area_all*S_equil)/S_bioecon)^Accel * exp( Eps_F[t] - SD_F^2/2 )
+				if(Spatial_F == FALSE) F_t[,t] = rep(fakeF[t], length(S_equil))
+				if(Spatial_F == TRUE) F_t[,t] = fakeF[t] * (S_st[,t]/max(S_st[,t]))
+      }
       # Weight
       W_st[,t] = S_st[,t] / N_st[,t]
-      # Fishing mortality
-      if(t==1) F_t[t] = F_equil 
-      if(t>=2) F_t[t] = F_t[t-1] * (sum(Area_all*S_st[,t])/sum(Area_all*S_equil)/S_bioecon)^Accel * exp( Eps_F[t] - SD_F^2/2 )
       # Catches
-      C_st[,t] = F_t[t]/(M+F_t[t]) * (1-exp(-M-F_t[t])) * S_st[,t]
+      C_st[,t] = F_t[,t]/(M+F_t[,t]) * (1-exp(-M-F_t[,t])) * S_st[,t]
     }
     ## Simulate data
     # Survey catches
@@ -315,7 +333,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
       dev.off()
     
     # Save true stuff
-      TrueList = list( "n_s"=n_s, "S_t"=S_t, "R_t"=R_t, "C_t"=C_t, "F_t"=F_t, "N_t"=N_t, "sum_S0"=sum_S0, "S_st"=S_st, "R_st"=R_st, "C_st"=C_st, "W_st"=W_st, "N_st"=N_st, "Index_hat"=Index_hat, "DF"=DF, "Omega_s"=Omega_s, "Alpha_s"=Alpha_s, "Epsilon_s"=Epsilon_s )
+      TrueList = list( "n_s"=n_s, "S_t"=S_t, "R_t"=R_t, "C_t"=C_t, "F_t"=fakeF, "N_t"=N_t, "sum_S0"=sum_S0, "S_st"=S_st, "R_st"=R_st, "C_st"=C_st, "W_st"=W_st, "N_st"=N_st, "Index_hat"=Index_hat, "DF"=DF, "Omega_s"=Omega_s, "Alpha_s"=Alpha_s, "Epsilon_s"=Epsilon_s )
       save(TrueList, file=paste(RepFile,"TrueList.RData",sep=""))
       
   for(ModelI in 1:length(ModelSet)){
@@ -355,22 +373,26 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
           #dyn.load( paste(TmbFile,dynlib("delay_difference_v4d"),sep="") )
           Error_Model = ErrorModel_CatchRates
           Data = list(Error_Model=Error_Model, Smooth_F=Smooth_F, n_j=n_j, n_i=n_i, n_s=n_s, n_t=n_t, I_j=DF_input[,'I_j'], W_j=DF_input[,'W_j'], AreaSwept_j=DF_input[,'AreaSwept_j'], Station_j=DF_input[,'Station_j']-1, Year_j=DF_input[,'Year_j']-1, C_t=C_t, meshidxloc=mesh_stations$idx$loc-1, G0=spde_stations$param.inla$M0, G1=spde_stations$param.inla$M1, G2=spde_stations$param.inla$M2, Area_i=Area_i, alpha_g=alpha_g, ro=ro, w_k=w_k, M=M, k=k, CV_c=CV_c, CV_w=CV_w)
-          Parameters = list(log_F_sd=log(1), log_F_equil=log(F_equil), log_F_t_input=log(F_t), log_q_I=log(q_I), beta=c(0.0), log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde))
+          Parameters = list(log_F_sd=log(1), log_F_equil=log(F_equil), log_F_t_input=log(fakeF), log_q_I=log(q_I), beta=c(0.0), log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde))
           #obj <- MakeADFun(data=Data, parameters=Parameters, random=c("Epsilon_input","Omega_input"), hessian=TRUE)
         }
         if(Version=="delay_difference_v6c"){    
           #dyn.load( paste(TmbFile,dynlib("delay_difference_v6c"),sep="") )
           Data = list(ModelType=ifelse(Model=="Spatial",1,2), ErrorModel_CatchRates=ErrorModel_CatchRates, ErrorModel_MeanWeight=ErrorModel_MeanWeight, Smooth_F=Smooth_F, n_j=n_j, n_i=n_i, n_s=n_s, n_t=n_t, I_j=DF_input[,'I_j'], W_j=DF_input[,'W_j'], AreaSwept_j=DF_input[,'AreaSwept_j'], Station_j=DF_input[,'Station_j']-1, Year_j=DF_input[,'Year_j']-1, C_t=C_t, meshidxloc=mesh_stations$idx$loc-1, G0=spde_stations$param.inla$M0, G1=spde_stations$param.inla$M1, G2=spde_stations$param.inla$M2, Area_i=Area_i, alpha_g=alpha_g, ro=ro, w_k=w_k, M=M, k=k, CV_c=CV_c, CV_w=CV_w)
-          Parameters = list(log_F_sd=log(1), log_F_equil=log(F_equil), log_F_t_input=log(F_t), log_q_I=log(q_I), beta=c(0.0), log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), log_extraCV_w=log(0.05), log_tau_N=log(1), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde), Nu_input=rep(0,n_t))
+          Parameters = list(log_F_sd=log(1), log_F_equil=log(F_equil), log_F_t_input=log(fakeF), log_q_I=log(q_I), beta=c(0.0), log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), log_extraCV_w=log(0.05), log_tau_N=log(1), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde), Nu_input=rep(0,n_t))
           #obj <- MakeADFun(data=Data, parameters=Parameters, random=c("Epsilon_input","Omega_input"), hessian=TRUE)
         } 
         if(Version=="delay_difference_v8e"){    
           Data = list(ModelType=ifelse(Model=="Spatial",1,2), ErrorModel_CatchRates=ErrorModel_CatchRates, ErrorModel_MeanWeight=ErrorModel_MeanWeight, Smooth_F=Smooth_F, n_j=n_j, n_i=n_i, n_s=n_s, n_t=n_t, I_j=DF_input[,'I_j'], W_j=DF_input[,'W_j'], AreaSwept_j=DF_input[,'AreaSwept_j'], Station_j=DF_input[,'Station_j']-1, Year_j=DF_input[,'Year_j']-1, C_t=C_t, IndexMat=IndexMat, meshidxloc=mesh_stations$idx$loc-1, G0=spde_stations$param.inla$M0, G1=spde_stations$param.inla$M1, G2=spde_stations$param.inla$M2, Area_i=Area_i, alpha_g=alpha_g, ro=ro, w_k=w_k, M=M, k=k, CV_c=CV_c, CV_w=CV_w)
-          Parameters = list(log_F_sd=log(1), log_F_t_input=log(c(F_equil,F_t)), log_q_I=log(q_I), beta=log_mu_alpha, log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), log_extraCV_w=log(0.05), log_tau_N=log(1), log_extraCV_Index=rep(log(0.1),2), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde), Nu_input=rep(0,n_t))
+          Parameters = list(log_F_sd=log(1), log_F_t_input=log(c(F_equil,fakeF)), log_q_I=log(q_I), beta=log_mu_alpha, log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), log_extraCV_w=log(0.05), log_tau_N=log(1), log_extraCV_Index=rep(log(0.1),2), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde), Nu_input=rep(0,n_t))
         }
-		if(Version=="delay_difference_v9"){    
-          Data = list(ModelType=ifelse(Model=="Spatial",1,2), ErrorModel_CatchRates=ErrorModel_CatchRates, ErrorModel_MeanWeight=ErrorModel_MeanWeight, Smooth_F=Smooth_F, n_j=n_j, n_i=n_i, n_s=n_s, n_t=n_t, I_j=DF_input[,'I_j'], W_j=DF_input[,'W_j'], AreaSwept_j=DF_input[,'AreaSwept_j'], Station_j=DF_input[,'Station_j']-1, Year_j=DF_input[,'Year_j']-1, C_t=C_t, IndexMat=IndexMat, meshidxloc=mesh_stations$idx$loc-1, G0=spde_stations$param.inla$M0, G1=spde_stations$param.inla$M1, G2=spde_stations$param.inla$M2, Area_i=Area_i, alpha_g=alpha_g, ro=ro, w_k=w_k, M=M, k=k, CV_c=CV_c, CV_w=CV_w)
-          Parameters = list(log_F_sd=log(1), log_F_t_input=log(c(F_equil,F_t)), log_q_I=log(q_I), beta=log_mu_alpha, log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), log_extraCV_w=log(0.05), Strata = rep(0, n_s), log_tau_N=log(1), log_extraCV_Index=rep(log(0.1),2), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde), Nu_input=rep(0,n_t))
+		    if(Version=="delay_difference_v9"){    
+          Data = list(ModelType=ifelse(Model=="Spatial",1,ifelse(Model == "Nonspatial", 2, 3)), ErrorModel_CatchRates=ErrorModel_CatchRates, ErrorModel_MeanWeight=ErrorModel_MeanWeight, Smooth_F=Smooth_F, n_j=n_j, n_i=n_i, n_s=n_s, n_t=n_t, I_j=DF_input[,'I_j'], W_j=DF_input[,'W_j'], AreaSwept_j=DF_input[,'AreaSwept_j'], Station_j=DF_input[,'Station_j']-1, Year_j=DF_input[,'Year_j']-1, C_t=C_t, IndexMat=IndexMat, meshidxloc=mesh_stations$idx$loc-1, G0=spde_stations$param.inla$M0, G1=spde_stations$param.inla$M1, G2=spde_stations$param.inla$M2, Area_i=Area_i, alpha_g=alpha_g, ro=ro, w_k=w_k, M=M, k=k, CV_c=CV_c, CV_w=CV_w)
+          Parameters = list(log_F_sd=log(1), log_F_t_input=log(c(F_equil,fakeF)), log_q_I=log(q_I), beta=log_mu_alpha, log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), log_extraCV_w=log(0.05), Strata = rep(0, n_s), log_tau_N=log(1), log_extraCV_Index=rep(log(0.1),2), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde), Nu_input=rep(0,n_t))
+        } 
+		    if(Version=="delay_difference_v10"){    
+          Data = list(ModelType=ifelse(Model=="Spatial",1,ifelse(Model == "Nonspatial", 2, 3)), ErrorModel_CatchRates=ErrorModel_CatchRates, ErrorModel_MeanWeight=ErrorModel_MeanWeight, Smooth_F=Smooth_F, n_j=n_j, n_i=n_i, n_s=n_s, n_t=n_t, I_j=DF_input[,'I_j'], W_j=DF_input[,'W_j'], AreaSwept_j=DF_input[,'AreaSwept_j'], Station_j=DF_input[,'Station_j']-1, Year_j=DF_input[,'Year_j']-1, C_t=C_t, IndexMat=IndexMat, meshidxloc=mesh_stations$idx$loc-1, G0=spde_stations$param.inla$M0, G1=spde_stations$param.inla$M1, G2=spde_stations$param.inla$M2, Area_i=Area_i, alpha_g=alpha_g, ro=ro, w_k=w_k, M=M, k=k, CV_c=CV_c, CV_w=CV_w)
+          Parameters = list(log_F_sd=log(1), log_F_t_input=log(c(F_equil,fakeF)), log_q_I=log(q_I), beta=log_mu_alpha, log_tau_E=0.0, log_tau_O=0.0, log_kappa=0.0,	ln_VarInfl=c(0.0,0.0), log_extraCV_w=log(0.05), Strata = rep(0, n_s), log_strata = 0, log_tau_N=log(1), log_extraCV_Index=rep(log(0.1),2), Epsilon_input=matrix(0,spde_stations$n.spde,n_t), Omega_input=rep(0,spde_stations$n.spde), Nu_input=rep(0,n_t))
         } 
       # Define random effects
         if( Model=="Spatial" ){
@@ -397,14 +419,16 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
        if( Model=="Spatial" ){
          Map[["log_tau_N"]] = factor(NA)
          Map[["Nu_input"]] = factor( rep(NA,n_t) )
-		 Map[["Strata"]] = factor(rep(NA,n_s))
+				 Map[["Strata"]] = factor(rep(NA,n_s))
+				 # Map[["log_strata"]] = factor(NA)
          Map[["log_extraCV_Index"]] = factor( rep(NA,2) )
          Map[["log_F_t_input"]] = factor( c(1,1:n_t) )
        }
        if( Model=="Nonspatial" ){
          Map[["log_tau_E"]] = factor(NA)
          Map[["log_tau_O"]] = factor(NA)
- 		 Map[["Strata"]] = factor(rep(NA,n_s))
+				 Map[["Strata"]] = factor(rep(NA,n_s))
+ 				 # Map[["log_strata"]] = factor(NA)
          Map[["Epsilon_input"]] = factor( rep(NA,length(Parameters$Epsilon_input)) )
          Map[["Omega_input"]] = factor( rep(NA,length(Parameters$Omega_input)) )
          Map[["log_kappa"]] = factor(NA)
@@ -414,7 +438,8 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
        if( Model=="Index" ){
          Map[["log_tau_E"]] = factor(NA)
          Map[["log_tau_O"]] = factor(NA)
- 		 Map[["Strata"]] = factor(rep(NA,n_s))
+				 Map[["Strata"]] = factor(rep(NA,n_s))
+ 				 # Map[["log_strata"]] = factor(NA)
          Map[["Epsilon_input"]] = factor( rep(NA,length(Parameters$Epsilon_input)) )
          Map[["Omega_input"]] = factor( rep(NA,length(Parameters$Omega_input)) )
          Map[["log_kappa"]] = factor(NA)
@@ -438,17 +463,17 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
         capture.output(MapList, file=paste(ModelFile,"MapList.txt",sep=""))
       # Build object                                                              #    
         # no random effect for the annual variation in recruitment
-			if(Model!="Spatial")
-			{
-				Map1 <- Map
-				Map1[["log_tau_N"]] = factor(NA)
-				obj <- MakeADFun(data=Data, parameters=Parameters, random=NULL, hessian=TRUE, map=Map1)
-			}
-		# with the annual variation in recruitment as random effect
-			if(Model=="Spatial")
-			{
-				obj <- MakeADFun(data=Data, parameters=Parameters, random=Random, hessian=TRUE, map=Map)
-			}
+				if(Model!="Spatial")
+				{
+					Map1 <- Map
+					Map1[["log_tau_N"]] = factor(NA)
+					obj <- MakeADFun(data=Data, parameters=Parameters, random=NULL, hessian=TRUE, map=Map1)
+				}
+			# with the annual variation in recruitment as random effect
+				if(Model=="Spatial")
+				{
+					obj <- MakeADFun(data=Data, parameters=Parameters, random=Random, hessian=TRUE, map=Map)
+				}
 			
       # Separability
         if(FALSE){
@@ -462,7 +487,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
         obj$fn(obj$par)
       # Run optimizer
       tic()
-        opt = nlminb(start=obj$par, objective=obj$fn, gradient=obj$gr, lower=-20, upper=20, control=list(trace=1, eval.max=1e4, iter.max=1e4))
+        opt = nlminb(start=obj$par, objective=obj$fn, gradient=obj$gr, lower=-20, upper=20, control=list(trace=1, eval.max=5e4, iter.max=5e4))
         Report = obj$report()
         Sdreport = try( sdreport(obj) )
       toc()
@@ -519,7 +544,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 			matplot( y=Mat[,c("True",'Est')], x=Mat[,c("Year")], type="l", col=c("black","red"), lty="solid", ylim=c(0,max(Mat[,c('True','Est')])), main="Recruitment")
 			if( !("condition" %in% names(attributes(Sdreport))) ) polygon( y=FUN(summary(Sdreport)[which(rownames(summary(Sdreport))=="R_t_hat"),]), x=c(Mat[,c("Year")],rev(Mat[,c("Year")])), col=rgb(1,0,0,alpha=0.2), border=NA)  
 			# Fishing mortality
-			Mat = cbind( "Year"=unique(DF[,'Year_j']), "True"=F_t, "Est"=Report$F_t)
+			Mat = cbind( "Year"=unique(DF[,'Year_j']), "True"=apply(F_t,2,median), "Est"=Report$F_t)
 			matplot( y=Mat[,c("True",'Est')], x=Mat[,c("Year")], type="l", col=c("black","red"), lty="solid", ylim=c(0,max(Mat[,c('True','Est')])), main="Fishing mortality")
 			if( !("condition" %in% names(attributes(Sdreport))) ) polygon( y=FUN(summary(Sdreport)[which(rownames(summary(Sdreport))=="F_t"),]), x=c(Mat[,c("Year")],rev(Mat[,c("Year")])), col=rgb(1,0,0,alpha=0.2), border=NA)  
 			# Depletion
@@ -718,7 +743,7 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 				plot(1, type="n", ylim=range(loc_stations[,'long']), xlim=range(loc_stations[,'lat']))
 				title( unique(DF[,'Year_j'])[i] )
 				points(y=DF[Which,'lat_j'], x=DF[Which,'long_j'], col=c("blue","red")[ifelse(Vec2[Which]>0,2,1)], cex=sqrt(Vec1[Which]), pch=21)
-				points(y=DF[Which,'lat_j'], x=DF[Which,'long_j'],, col="black", cex=sqrt(0.5), pch=20)
+				points(y=DF[Which,'lat_j'], x=DF[Which,'long_j'], col="black", cex=sqrt(0.5), pch=20)
 				if( (i-1)%%Ncol == 0) axis(2)
 				if( (i-1)/Ncol >= (Nrow-1)) axis(1,las=2)
 				box(bty="o",lwd=2)
@@ -742,7 +767,21 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 # Test SD_E
 	Run_simul(SD_A=0.5, SD_E=0.25, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2)
 	Run_simul(SD_A=0.5, SD_E=1, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2)
+# Test Scale
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=125, CV_w=0.2, Accel=0.2, SD_F=0.2)
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=500, CV_w=0.2, Accel=0.2, SD_F=0.2)
+# Test CV_w
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.1, Accel=0.2, SD_F=0.2)
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.4, Accel=0.2, SD_F=0.2)
+# Test Accel
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.1, SD_F=0.2)
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.4, SD_F=0.2)
+# Test SD_F
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.1)
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.4)
 	
+# When F changes over space
+	Run_simul(SD_A=0.5, SD_E=0.5, Scale=250, CV_w=0.2, Accel=0.2, SD_F=0.2, Spatial_F=TRUE)
 
 
 
@@ -754,99 +793,200 @@ source( file=paste(File,"Fn_helpers_2014-05-09.R",sep="") )
 #
 ################################
 
-if(FALSE){
+library(pacman)
+p_load(reshape2, plyr, ggplot2)
+setwd(File)
+	get_results <- function(Dir_save)
+	{
+	  load(file=paste(Dir_save,"/SettingsList.RData",sep=""))
+	  attach( SettingsList )
+	  # n_s = 25
 
-  load(file=paste(Dir_save,"SettingsList.RData",sep=""))
-  attach( SettingsList )
-  # n_s = 25
+	  # Save objects
+	  Timeseries = array(NA, dim=c(length(RepSet),n_t,5,length(ModelSet)+1), dimnames=list( paste("Rep",RepSet), paste("Year",1:n_t), c("N_t","S_t","R_t","F_t","D_t"), c("True",ModelSet)) )
+	  Omega = array(NA, dim=c(length(RepSet),n_s,length(ModelSet)+1), dimnames=list( paste("Rep",RepSet), paste("Omega",1:n_s), c("True",ModelSet)) )
+	  Epsilon = array(NA, dim=c(length(RepSet),n_t,n_s,length(ModelSet)+1), dimnames=list( paste("Rep",RepSet), paste("Year",1:n_t), paste("Omega",1:n_s), c("True",ModelSet)) )
+	  Param = array(NA, dim=c(length(RepSet),4,length(ModelSet)+1), dimnames=list( paste("Rep",RepSet), c("R2_omega","Cor_omega","R2_epsilon","Cor_epsilon"), c("True",ModelSet)) )
 
-  # Save objects
-  Timeseries = array(NA, dim=c(length(RepSet),n_t,5,length(ModelSet)+1), dimnames=list( paste("Rep",RepSet), paste("Year",1:n_t), c("N_t","S_t","R_t","F_t","D_t"), c("True",ModelSet)) )
-  Omega = array(NA, dim=c(length(RepSet),n_s,length(ModelSet)+1), dimnames=list( paste("Rep",RepSet), paste("Omega",1:n_s), c("True",ModelSet)) )
-  Epsilon = array(NA, dim=c(length(RepSet),n_t,n_s,length(ModelSet)+1), dimnames=list( paste("Rep",RepSet), paste("Year",1:n_t), paste("Omega",1:n_s), c("True",ModelSet)) )
-  Param = array(NA, dim=c(length(RepSet),4,length(ModelSet)+1), dimnames=list( paste("Rep",RepSet), c("R2_omega","Cor_omega","R2_epsilon","Cor_epsilon"), c("True",ModelSet)) )
+		RepI=1; ModelI=3
+		for(RepI in 1:length(RepSet))
+		{
+			for(ModelI in 1:length(ModelSet))
+			{
+				# Unload previous
+				if( 'TrueList' %in% search() ) detach(TrueList)
+				if( 'Save' %in% search() ) detach(Save)
 
-  RepI=1; ModelI=3
-  for(RepI in 1:length(RepSet)){
-  for(ModelI in 1:length(ModelSet)){
+				# RepFile
+				RepFile = paste(Dir_save,"Rep=",RepSet[RepI],"/",sep="")
+				ModelFile = paste(RepFile,"Model=",ModelSet[ModelI],"/",sep="")
+
+				# Load true values
+				load( file=paste(RepFile,"TrueList.RData",sep=""))
+				Match = which(names(TrueList) %in% ls() )
+				if( length(Match)>=1) remove( list=names(TrueList)[Match])
+				attach(TrueList)
+				# Load estimated values
+				load( file=paste(ModelFile,"Save.RData",sep=""))
+				Match = which(names(Save) %in% ls() )
+				if( length(Match)>=1) remove( list=names(Save)[Match])
+				attach(Save)
+									
+				#### Time series
+				# Save true values
+				if(ModelI==1){
+				  Timeseries[RepI,1:n_t,'N_t','True'] = N_t 
+				  Timeseries[RepI,1:n_t,'S_t','True'] = S_t
+				  Timeseries[RepI,1:n_t,'R_t','True'] = R_t
+				  Timeseries[RepI,1:n_t,'F_t','True'] = F_t
+				  Timeseries[RepI,1:n_t,'D_t','True'] = S_t/sum_S0
+				}
+				# Save estimates
+				Timeseries[RepI,1:n_t,'N_t',ModelSet[ModelI]] = Report$N_t_hat
+				Timeseries[RepI,1:n_t,'S_t',ModelSet[ModelI]] = Report$S_t_hat
+				Timeseries[RepI,1:n_t,'R_t',ModelSet[ModelI]] = Report$R_t_hat
+				Timeseries[RepI,1:n_t,'F_t',ModelSet[ModelI]] = Report$F_t
+				Timeseries[RepI,1:n_t,'D_t',ModelSet[ModelI]] = Report$S_t/Report$sum_S0
+				
+				#### Random field values
+				# true values
+				# Save true values
+				if(ModelI==1){
+				  Omega[RepI,,'True'] = Omega_s[1:n_s] 
+				  Epsilon[RepI,1:n_t,,'True'] = t(Epsilon_s[1:n_s,])
+				}
+				# Save estimates
+				Omega[RepI,,ModelSet[ModelI]] = Report$Omega[1:n_s]
+				Epsilon[RepI,1:n_t,,ModelSet[ModelI]] = t(Report$Epsilon[1:n_s,])
+				
+				#### Parameters and derived values
+				Param[RepI,"R2_omega",ModelSet[ModelI]] = 1 - sum( (Omega[RepI,,'True']-Omega[RepI,,ModelSet[ModelI]])^2 )/sum( Omega[RepI,,'True']^2 )
+				Param[RepI,"R2_epsilon",ModelSet[ModelI]] = 1 - base::sum( (Epsilon[RepI,1:n_t,,'True']-Epsilon[RepI,1:n_t,,ModelSet[ModelI]])^2 )/base::sum( Epsilon[RepI,1:n_t,,'True']^2 )
+				Param[RepI,"Cor_omega",ModelSet[ModelI]] = cor( Omega[RepI,,'True'], Omega[RepI,,ModelSet[ModelI]] ) 
+				Param[RepI,"Cor_epsilon",ModelSet[ModelI]] = cor( as.vector(Epsilon[RepI,1:n_t,,'True']), as.vector(Epsilon[RepI,1:n_t,,ModelSet[ModelI]]) )
+				}
+		} # End ModelI, RepI loops
+	  
+		  RE = (Timeseries[,,,ModelSet] - outer(Timeseries[,,,'True'],rep(1,3))) / outer(Timeseries[,,,'True'],rep(1,3))
+		  Bias = apply( RE[,,,,drop=FALSE], MARGIN=3:4, FUN=median, na.rm=TRUE)
+		  MARE = apply( abs(RE[,,,,drop=FALSE]), MARGIN=3:4, FUN=median, na.rm=TRUE)
+		  RMSE = sqrt(apply( RE[,,,,drop=FALSE]^2, MARGIN=3:4, FUN=median, na.rm=TRUE))
+
+	  # Now trying to 	
+
+			REs <- melt(RE, varnames=c("Iter", "Year", "Var", "Method"))
+			REs$Year <- as.numeric(REs$Year)
+			REs$Iter <- as.numeric(REs$Iter)
+			RE <- ddply(REs, c("Year", "Var", "Method"), summarize,
+				q10 = quantile(value, probs = 0.10, na.rm=T),
+				q25 = quantile(value, probs = 0.25, na.rm=T),
+				q50 = quantile(value, probs = 0.50, na.rm=T),
+				q75 = quantile(value, probs = 0.75, na.rm=T),
+				q90 = quantile(value, probs = 0.90, na.rm=T)
+			)
+			
+		RES <- list()	
+		RES$RE <- RE
+		RES$Bias <- Bias
+		RES$MARE <- MARE
+		return(RES)	
+	}
+
+	Base_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=250_CV_w=0.2_Accel=0.2_SD_F=0.2/")
+	Low_SDA_all <- get_results(Dir_save="SD_A=0.25_SD_E=0.5_Scale=250_CV_w=0.2_Accel=0.2_SD_F=0.2/")
+	High_SDA_all <- get_results(Dir_save="SD_A=1_SD_E=0.5_Scale=250_CV_w=0.2_Accel=0.2_SD_F=0.2/")
+	Low_SDE_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.25_Scale=250_CV_w=0.2_Accel=0.2_SD_F=0.2/")
+	High_SDE_all <- get_results(Dir_save="SD_A=0.5_SD_E=1_Scale=250_CV_w=0.2_Accel=0.2_SD_F=0.2/")
+	Low_scale_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=125_CV_w=0.2_Accel=0.2_SD_F=0.2/")
+	High_scale_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=500_CV_w=0.2_Accel=0.2_SD_F=0.2/")
+	Low_CVw_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=250_CV_w=0.1_Accel=0.2_SD_F=0.2/")
+	High_CVw_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=250_CV_w=0.4_Accel=0.2_SD_F=0.2/")
+	Low_accel_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=250_CV_w=0.2_Accel=0.1_SD_F=0.2/")
+	High_accel_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=250_CV_w=0.2_Accel=0.4_SD_F=0.2/")
+	Low_SDF_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=250_CV_w=0.2_Accel=0.2_SD_F=0.1/")
+	High_SDF_all <- get_results(Dir_save="SD_A=0.5_SD_E=0.5_Scale=250_CV_w=0.2_Accel=0.2_SD_F=0.4/")
+
+	Base 		<- Base_all[[1]]		;   Base_bias 		<- Base_all[[2]]	     ;   Base_MARE 		<- Base_all[[3]]	
+  Low_SDA 	<- Low_SDA_all[[1]]     ;   Low_SDA_bias 	<- Low_SDA_all[[2]]      ;   Low_SDA_MARE 	<- Low_SDA_all[[3]] 
+  High_SDA 	<- High_SDA_all[[1]]    ;   High_SDA_bias 	<- High_SDA_all[[2]]     ;   High_SDA_MARE 	<- High_SDA_all[[3]]
+	Low_SDE	 	<- Low_SDE_all[[1]]     ;   Low_SDE_bias 	<- Low_SDE_all[[2]]      ;   Low_SDE_MARE 	<- Low_SDE_all[[3]] 
+	High_SDE	<- High_SDE_all[[1]]    ;   High_SDE_bias	<- High_SDE_all[[2]]     ;   High_SDE_MARE	<- High_SDE_all[[3]]
+	Low_scale	<- Low_scale_all[[1]]   ;   Low_scale_bias 	<- Low_scale_all[[2]]    ;   Low_scale_MARE <- Low_scale_all[[3]] 
+	High_scale	<- High_scale_all[[1]]  ;   High_scale_bias <- High_scale_all[[2]]   ;   High_scale_MARE<- High_scale_all[[3]] 
+	Low_CVw		<- Low_CVw_all[[1]]   	;   Low_CVw_bias 	<- Low_CVw_all[[2]]   	 ;   Low_CVw_MARE 	<- Low_CVw_all[[3]] 
+	High_CVw	<- High_CVw_all[[1]]   	;   High_CVw_bias 	<- High_CVw_all[[2]]     ;   High_CVw_MARE 	<- High_CVw_all[[3]] 
+	Low_accel	<- Low_accel_all[[1]]   ;   Low_accel_bias 	<- Low_accel_all[[2]]    ;   Low_accel_MARE <- Low_accel_all[[3]] 
+	High_accel	<- High_accel_all[[1]]  ;   High_accel_bias <- High_accel_all[[2]]   ;   High_accel_MARE<- High_accel_all[[3]] 
+	Low_SDF		<- Low_SDF_all[[1]] 	;   Low_SDF_bias 	<- Low_SDF_all[[2]]      ;   Low_SDF_MARE 	<- Low_SDF_all[[3]] 
+	High_SDF	<- High_SDF_all[[1]]    ;   High_SDF_bias 	<- High_SDF_all[[2]]     ;   High_SDF_MARE 	<- High_SDF_all[[3]] 
+	
+	Base$SDA <- 0.5
+	Base$SDE <- 0.5
+	Low_SDA$SDA <- 0.25
+	Low_SDA$SDE <- 0.5
+	High_SDA$SDA <- 1
+	High_SDA$SDE <- 0.5
+	Low_SDE$SDA <- 0.5
+	Low_SDE$SDE <- 0.25
+	High_SDE$SDA <- 0.5
+	High_SDE$SDE <- 1
+		
+	Test_SDA <- rbind(Base, Low_SDA, High_SDA)#, Low_SDE, High_SDE)
+	# Base_MARE1 <- melt(Base_MARE, varnames=c("Var", "Method"));Base_MARE1$SDA = 0.5
+	# Low_SDA_MARE1 <- melt(Low_SDA_MARE, varnames=c("Var", "Method"));Low_SDA_MARE1$SDA = 0.25
+	# High_SDA_MARE1 <- melt(High_SDA_MARE, varnames=c("Var", "Method"));High_SDA_MARE1$SDA = 1
+	# Mare_SDA <- rbind(Base_MARE1, Low_SDA_MARE1, High_SDA_MARE1)
+	Mare_SDA <- rbind(Base_MARE, Low_SDA_MARE, High_SDA_MARE)
+	Base_MARE2 <- melt(Base_MARE, varnames=c("Var", "Method"));Base_MARE2$SDE = 0.5
+	Low_SDE_MARE2 <- melt(Low_SDE_MARE, varnames=c("Var", "Method"));Low_SDE_MARE2$SDE = 0.25
+	High_SDE_MARE2 <- melt(High_SDE_MARE, varnames=c("Var", "Method"));High_SDE_MARE2$SDE = 1
+	Test_SDE <- rbind(Base, Low_SDE, High_SDE)#, Low_SDE, High_SDE)
+	Mare_SDE <- rbind(Base_MARE, Low_SDE_MARE, High_SDE_MARE)#, Low_SDE, High_SDE)
+	
+	cols <- RColorBrewer::brewer.pal(8, "Greys")
+
+ 	PLOT <- function(dat, titre, xlabel="Year", ylabel="Relative error", ys="Method", xs="Scenario", Variable= "R_t", add_var = Mare_SDA, ylims=c(-0.25,0.25),filename,...)
+	{
+		nvars <- length(unique(dat[,xs]))*length(unique(dat[,ys]))
+		datdat <- add_var[rownames(add_var)==Variable,]
+		datdat <- melt(round(datdat, 3))
+		datdat$Scenario <- paste0(xs, " = ", rep(c(0.25,0.5,1),3))
+		datdat$label <- paste0("MARE = ", datdat$value)
+		colnames(datdat) <- c("Var", ys, "value", xs, "label")
+		
+		windows()
+		dat <- subset(dat, Var == Variable)
+		
+		p <- ggplot(dat)
+		p <- p + geom_ribbon(aes(Year, ymax = q10, ymin = q90), fill = cols[4]) +
+			geom_ribbon(aes(Year, ymax = q25, ymin = q75), fill = cols[6]) +
+			geom_line(aes(Year, q50), colour = cols[8]) +
+			facet_grid(paste(ys, "~", xs), scales = "free_y") +
+			theme_bw() +
+			theme(panel.grid.major = element_blank(),
+				panel.grid.minor = element_blank(),
+				strip.background = element_rect(fill = NA, linetype = 0),
+				axis.text = element_text(colour = "grey50", size=13),
+				axis.title = element_text(colour = "grey30", size=15),
+				axis.ticks = element_line(colour = "grey50"),
+				strip.text = element_text(colour = "grey30", size=15)#,
+				# plot.margin = grid::unit(c(.1,.1,.1,.1), "cm"),
+				# panel.margin = grid::unit(0, "cm")
+				) +  geom_hline(yintercept = 0, linetype = 2, size=1, colour = "black") +
+			coord_cartesian(ylim=ylims) + labs(x=xlabel, y=ylabel, size=15)
+		p + geom_text(data=datdat, aes(x=23, y=0.23, label=label), size=3.5) + ggtitle(titre)
+		
+		ggsave(filename=paste0(filename, ".png"), path = Figure_save, dpi=450)
+		dev.off()
+	}
   
-    # Unload previous
-    if( 'TrueList' %in% search() ) detach(TrueList)
-    if( 'Save' %in% search() ) detach(Save)
+	Figure_save <- "Figures"
+	
+	Test_SDA$Method <- factor(Test_SDA$Method, levels=c("Nonspatial", "Strata", "Spatial"))
+	Test_SDA$SDA <- as.character(Test_SDA$SDA); Test_SDA$SDA <- as.factor(paste0("SDA = ", Test_SDA$SDA))
+	PLOT(dat=Test_SDA, titre="", xlabel="Year", ylabel="Relative error", ys="Method", xs="SDA", Variable= "R_t", add_var = Mare_SDA, ylims=c(-0.3,0.3), filename="SDA")
+	Test_SDE$Method <- factor(Test_SDE$Method, levels=c("Nonspatial", "Strata", "Spatial"))
+	Test_SDE$SDE <- as.character(Test_SDE$SDE); Test_SDE$SDE <- as.factor(paste0("SDE = ", Test_SDE$SDE))
+	PLOT(dat=Test_SDE, titre="", xlabel="Year", ylabel="Relative error", ys="Method", xs="SDE", Variable= "R_t", add_var = Mare_SDE, ylims=c(-0.3,0.3), filename="SDE")
 
-    # RepFile
-    RepFile = paste(Dir_save,"Rep=",RepSet[RepI],"/",sep="")
-    ModelFile = paste(RepFile,"Model=",ModelSet[ModelI],"/",sep="")
-
-    # Load true values
-    load( file=paste(RepFile,"TrueList.RData",sep=""))
-    Match = which(names(TrueList) %in% ls() )
-    if( length(Match)>=1) remove( list=names(TrueList)[Match])
-    attach(TrueList)
-    # Load estimated values
-    load( file=paste(ModelFile,"Save.RData",sep=""))
-    Match = which(names(Save) %in% ls() )
-    if( length(Match)>=1) remove( list=names(Save)[Match])
-    attach(Save)
-                        
-    #### Time series
-    # Save true values
-    if(ModelI==1){
-      Timeseries[RepI,1:n_t,'N_t','True'] = N_t 
-      Timeseries[RepI,1:n_t,'S_t','True'] = S_t
-      Timeseries[RepI,1:n_t,'R_t','True'] = R_t
-      Timeseries[RepI,1:n_t,'F_t','True'] = F_t
-      Timeseries[RepI,1:n_t,'D_t','True'] = S_t/sum_S0
-    }
-    # Save estimates
-    Timeseries[RepI,1:n_t,'N_t',ModelSet[ModelI]] = Report$N_t_hat
-    Timeseries[RepI,1:n_t,'S_t',ModelSet[ModelI]] = Report$S_t_hat
-    Timeseries[RepI,1:n_t,'R_t',ModelSet[ModelI]] = Report$R_t_hat
-    Timeseries[RepI,1:n_t,'F_t',ModelSet[ModelI]] = Report$F_t
-    Timeseries[RepI,1:n_t,'D_t',ModelSet[ModelI]] = Report$S_t/Report$sum_S0
-    
-    #### Random field values
-    # true values
-    # Save true values
-    if(ModelI==1){
-      Omega[RepI,,'True'] = Omega_s[1:n_s] 
-      Epsilon[RepI,1:n_t,,'True'] = t(Epsilon_s[1:n_s,])
-    }
-    # Save estimates
-    Omega[RepI,,ModelSet[ModelI]] = Report$Omega[1:n_s]
-    Epsilon[RepI,1:n_t,,ModelSet[ModelI]] = t(Report$Epsilon[1:n_s,])
-    
-    #### Parameters and derived values
-    Param[RepI,"R2_omega",ModelSet[ModelI]] = 1 - sum( (Omega[RepI,,'True']-Omega[RepI,,ModelSet[ModelI]])^2 )/sum( Omega[RepI,,'True']^2 )
-    Param[RepI,"R2_epsilon",ModelSet[ModelI]] = 1 - base::sum( (Epsilon[RepI,1:n_t,,'True']-Epsilon[RepI,1:n_t,,ModelSet[ModelI]])^2 )/base::sum( Epsilon[RepI,1:n_t,,'True']^2 )
-    Param[RepI,"Cor_omega",ModelSet[ModelI]] = cor( Omega[RepI,,'True'], Omega[RepI,,ModelSet[ModelI]] ) 
-    Param[RepI,"Cor_epsilon",ModelSet[ModelI]] = cor( as.vector(Epsilon[RepI,1:n_t,,'True']), as.vector(Epsilon[RepI,1:n_t,,ModelSet[ModelI]]) )
-  }} # End ModelI, RepI loops
   
-  RE = (Timeseries[,,,ModelSet] - outer(Timeseries[,,,'True'],rep(1,3))) / outer(Timeseries[,,,'True'],rep(1,3))
-  Bias = apply( RE[,,,,drop=FALSE], MARGIN=3:4, FUN=median, na.rm=TRUE)
-  MARE = apply( abs(RE[,,,,drop=FALSE]), MARGIN=3:4, FUN=median, na.rm=TRUE)
-  RMSE = sqrt(apply( RE[,,,,drop=FALSE]^2, MARGIN=3:4, FUN=median, na.rm=TRUE))
-
-  par(mfrow=c(dim(RE)[3],dim(RE)[4]), mar=c(3,3,2,0), mgp=c(2,0.5,0))
-  for(StatI in 1:dim(RE)[3]){
-  for(ModelI in 1:dim(RE)[4]){
-    matplot( t(RE[,,StatI,ModelI]), type="l", col="black", lty="solid", ylim=range(RE[,,StatI,],na.rm=TRUE))
-  }}  
-
-  # Correlations between Omega and Epsilon                                    # col=rgb(1,0,0,0.2), 
-  png(file=paste(Dir_save,"Random_field_summaries.png",sep=""), width=5, height=5, res=200, units="in")
-    par(mfrow=c(2,2), mar=c(0,2,0,0), mgp=c(2,0.5,0), tck=-0.02, oma=c(3,3,2,0.5), xaxs="i", yaxs="i")
-    hist(Param[,"R2_omega","Spatial"], breaks=seq(0,1,length=25), xlim=c(0,1), prob=TRUE, main="", xlab="", ylab="", xaxt="n", col="darkgrey" ); box()
-    mtext( side=3, text="Variance explained")
-    mtext( side=2, text=expression(Omega), line=2)
-    hist(Param[,"Cor_omega","Spatial"], breaks=seq(0,1,length=25), xlim=c(0,1), prob=TRUE, main="", xlab="", ylab="", xaxt="n", col="darkgrey" ); box()
-    mtext( side=3, text="Correlation")
-    hist(Param[,"R2_epsilon","Spatial"], breaks=seq(0,1,length=25), xlim=c(0,1), prob=TRUE, main="", xlab="", ylab="", xaxt="n", col="darkgrey" ); box()
-    mtext( side=2, text=expression(Epsilon), line=2)
-    axis(1)
-    hist(Param[,"Cor_epsilon","Spatial"], breaks=seq(0,1,length=25), xlim=c(0,1), prob=TRUE, main="", xlab="", ylab="", xaxt="n", col="darkgrey" ); box()
-    axis(1)
-  dev.off()
-}
-       
